@@ -260,7 +260,7 @@ index 7e8773a2d99d..9fde36fcb80c 100644
  EXPORT_SYMBOL(kernel_neon_end);
  
 diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
-index 9e0c1ac3d13e..6f7960fad0df 100644
+index f9777ce2ccb2..9717c564daac 100644
 --- a/arch/arm64/Kconfig
 +++ b/arch/arm64/Kconfig
 @@ -97,6 +97,7 @@ config ARM64
@@ -453,10 +453,10 @@ index b1e6d275cda9..9a8d3970da3c 100644
  }
  
 diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
-index fe30b24d52e1..2bdf6a7d0f8c 100644
+index c785a0200573..e05c170781c6 100644
 --- a/arch/riscv/Kconfig
 +++ b/arch/riscv/Kconfig
-@@ -49,6 +49,7 @@ config RISCV
+@@ -48,6 +48,7 @@ config RISCV
  	select ARCH_SUPPORTS_HUGETLBFS if MMU
  	select ARCH_SUPPORTS_PAGE_TABLE_CHECK if MMU
  	select ARCH_SUPPORTS_PER_VMA_LOCK if MMU
@@ -464,7 +464,7 @@ index fe30b24d52e1..2bdf6a7d0f8c 100644
  	select ARCH_USE_MEMTEST
  	select ARCH_USE_QUEUED_RWLOCKS
  	select ARCH_USES_CFI_TRAPS if CFI_CLANG
-@@ -136,6 +137,7 @@ config RISCV
+@@ -135,6 +136,7 @@ config RISCV
  	select HAVE_PERF_USER_STACK_DUMP
  	select HAVE_POSIX_CPU_TIMERS_TASK_WORK
  	select HAVE_PREEMPT_DYNAMIC_KEY if !XIP_KERNEL
@@ -504,7 +504,7 @@ index d18ce0113ca1..e18710fe51f0 100644
  #define _TIF_WORK_MASK \
  	(_TIF_NOTIFY_RESUME | _TIF_SIGPENDING | _TIF_NEED_RESCHED | \
 diff --git a/arch/riscv/kernel/cpufeature.c b/arch/riscv/kernel/cpufeature.c
-index e39a905aca24..347cdf56f3a1 100644
+index e39a905aca24..dd118773e717 100644
 --- a/arch/riscv/kernel/cpufeature.c
 +++ b/arch/riscv/kernel/cpufeature.c
 @@ -8,6 +8,7 @@
@@ -523,7 +523,7 @@ index e39a905aca24..347cdf56f3a1 100644
  #define MISALIGNED_COPY_SIZE ((MISALIGNED_BUFFER_SIZE / 2) - 0x80)
  
  unsigned long elf_hwcap __read_mostly;
-@@ -571,27 +573,22 @@ unsigned long riscv_get_elf_hwcap(void)
+@@ -571,14 +573,15 @@ unsigned long riscv_get_elf_hwcap(void)
  	return hwcap;
  }
  
@@ -541,20 +541,19 @@ index e39a905aca24..347cdf56f3a1 100644
  	void *dst;
  	void *src;
  	long speed = RISCV_HWPROBE_MISALIGNED_SLOW;
- 
- 	/* We are already set since the last check */
+@@ -587,12 +590,6 @@ void check_unaligned_access(int cpu)
  	if (per_cpu(misaligned_access_speed, cpu) != RISCV_HWPROBE_MISALIGNED_UNKNOWN)
--		return;
--
+ 		return;
+ 
 -	page = alloc_pages(GFP_NOWAIT, get_order(MISALIGNED_BUFFER_SIZE));
 -	if (!page) {
 -		pr_warn("Can't alloc pages to measure memcpy performance");
 -		return;
 -	}
-+		return 0;
- 
+-
  	/* Make an unaligned destination buffer. */
  	dst = (void *)((unsigned long)page_address(page) | 0x1);
+ 	/* Unalign src as well, but differently (off by 1 + 2 = 3). */
 @@ -645,7 +642,7 @@ void check_unaligned_access(int cpu)
  		pr_warn("cpu%d: rdtime lacks granularity needed to measure unaligned access speed\n",
  			cpu);
@@ -580,10 +579,12 @@ index e39a905aca24..347cdf56f3a1 100644
 +
 +	if (smp_processor_id() != 0)
 +		check_unaligned_access(pages[cpu]);
-+}
-+
+ }
+ 
+-static int check_unaligned_access_boot_cpu(void)
 +static int riscv_online_cpu(unsigned int cpu)
-+{
+ {
+-	check_unaligned_access(0);
 +	static struct page *buf;
 +
 +	/* We are already set since the last check */
@@ -599,13 +600,11 @@ index e39a905aca24..347cdf56f3a1 100644
 +	check_unaligned_access(buf);
 +	__free_pages(buf, MISALIGNED_BUFFER_ORDER);
 +	return 0;
- }
- 
--static int check_unaligned_access_boot_cpu(void)
++}
++
 +/* Measure unaligned access on all CPUs present at boot in parallel. */
 +static int check_unaligned_access_all_cpus(void)
- {
--	check_unaligned_access(0);
++{
 +	unsigned int cpu;
 +	unsigned int cpu_count = num_possible_cpus();
 +	struct page **bufs = kzalloc(cpu_count * sizeof(struct page *),
@@ -666,7 +665,7 @@ index 1b8da4e40a4d..2cb5e651412c 100644
  	if (has_vector()) {
  		if (riscv_v_setup_vsize())
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
-index 82d12c93feab..7bbf835fe725 100644
+index be9248e5cb71..c8bdb181469a 100644
 --- a/arch/x86/Kconfig
 +++ b/arch/x86/Kconfig
 @@ -118,6 +118,7 @@ config X86
@@ -710,10 +709,10 @@ index d63b02940747..1ff38ebbd588 100644
  #define _TIF_SSBD		(1 << TIF_SSBD)
  #define _TIF_SPEC_IB		(1 << TIF_SPEC_IB)
 diff --git a/drivers/acpi/processor_idle.c b/drivers/acpi/processor_idle.c
-index 831fa4a12159..5af3ebec0f74 100644
+index bd6a7857ce05..d45dfd10b636 100644
 --- a/drivers/acpi/processor_idle.c
 +++ b/drivers/acpi/processor_idle.c
-@@ -107,7 +107,7 @@ static const struct dmi_system_id processor_power_dmi_table[] = {
+@@ -108,7 +108,7 @@ static const struct dmi_system_id processor_power_dmi_table[] = {
   */
  static void __cpuidle acpi_safe_halt(void)
  {
@@ -1153,25 +1152,24 @@ index f5659ebd08eb..5b6d2f55528d 100644
  	spin_unlock_irqrestore(&dev_priv->uncore.lock, irqflags);
  
 diff --git a/drivers/gpu/drm/i915/gt/intel_breadcrumbs.c b/drivers/gpu/drm/i915/gt/intel_breadcrumbs.c
-index f2973cd1a8aa..aa77f8601b8a 100644
+index ecc990ec1b95..8d04b10681f0 100644
 --- a/drivers/gpu/drm/i915/gt/intel_breadcrumbs.c
 +++ b/drivers/gpu/drm/i915/gt/intel_breadcrumbs.c
-@@ -315,7 +315,12 @@ void __intel_breadcrumbs_park(struct intel_breadcrumbs *b)
- 		return;
- 
+@@ -312,10 +312,9 @@ void __intel_breadcrumbs_park(struct intel_breadcrumbs *b)
  	/* Kick the work once more to drain the signalers, and disarm the irq */
--	irq_work_queue(&b->irq_work);
-+	irq_work_sync(&b->irq_work);
-+	while (READ_ONCE(b->irq_armed) && !atomic_read(&b->active)) {
+ 	irq_work_sync(&b->irq_work);
+ 	while (READ_ONCE(b->irq_armed) && !atomic_read(&b->active)) {
+-		local_irq_disable();
+-		signal_irq_work(&b->irq_work);
+-		local_irq_enable();
 +		irq_work_queue(&b->irq_work);
-+		cond_resched();
+ 		cond_resched();
 +		irq_work_sync(&b->irq_work);
-+	}
+ 	}
  }
  
- void intel_breadcrumbs_free(struct kref *kref)
 diff --git a/drivers/gpu/drm/i915/gt/intel_execlists_submission.c b/drivers/gpu/drm/i915/gt/intel_execlists_submission.c
-index 2065be5a196b..73d815fc514b 100644
+index 42e09f158920..ac80e229f1cc 100644
 --- a/drivers/gpu/drm/i915/gt/intel_execlists_submission.c
 +++ b/drivers/gpu/drm/i915/gt/intel_execlists_submission.c
 @@ -1303,7 +1303,7 @@ static void execlists_dequeue(struct intel_engine_cs *engine)
@@ -1425,7 +1423,7 @@ index 4a9e71b2dbbc..021949f252f8 100644
  	lsr = serial_port_in(port, UART_LSR);
  
 diff --git a/drivers/tty/serial/8250/8250_bcm7271.c b/drivers/tty/serial/8250/8250_bcm7271.c
-index 9afd5979c9e0..db23b3a02aef 100644
+index aa5aff046756..ff0662c68725 100644
 --- a/drivers/tty/serial/8250/8250_bcm7271.c
 +++ b/drivers/tty/serial/8250/8250_bcm7271.c
 @@ -567,7 +567,7 @@ static irqreturn_t brcmuart_isr(int irq, void *dev_id)
@@ -1477,7 +1475,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  	serial8250_do_shutdown(port);
  }
  
-@@ -807,7 +807,7 @@ static int brcmuart_handle_irq(struct uart_port *p)
+@@ -788,7 +788,7 @@ static int brcmuart_handle_irq(struct uart_port *p)
  	 * interrupt but there is no data ready.
  	 */
  	if (((iir & UART_IIR_ID) == UART_IIR_RX_TIMEOUT) && !(priv->shutdown)) {
@@ -1486,7 +1484,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  		status = serial_port_in(p, UART_LSR);
  		if ((status & UART_LSR_DR) == 0) {
  
-@@ -832,7 +832,7 @@ static int brcmuart_handle_irq(struct uart_port *p)
+@@ -813,7 +813,7 @@ static int brcmuart_handle_irq(struct uart_port *p)
  
  			handled = 1;
  		}
@@ -1495,7 +1493,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  		if (handled)
  			return 1;
  	}
-@@ -850,7 +850,7 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
+@@ -831,7 +831,7 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
  	if (priv->shutdown)
  		return HRTIMER_NORESTART;
  
@@ -1504,7 +1502,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  	status = serial_port_in(p, UART_LSR);
  
  	/*
-@@ -874,7 +874,7 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
+@@ -855,7 +855,7 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
  		status |= UART_MCR_RTS;
  		serial_port_out(p, UART_MCR, status);
  	}
@@ -1513,7 +1511,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  	return HRTIMER_NORESTART;
  }
  
-@@ -1173,10 +1173,10 @@ static int __maybe_unused brcmuart_suspend(struct device *dev)
+@@ -1154,10 +1154,10 @@ static int __maybe_unused brcmuart_suspend(struct device *dev)
  	 * This will prevent resume from enabling RTS before the
  	 *  baud rate has been restored.
  	 */
@@ -1526,7 +1524,7 @@ index 9afd5979c9e0..db23b3a02aef 100644
  
  	serial8250_suspend_port(priv->line);
  	clk_disable_unprepare(priv->baud_mux_clk);
-@@ -1215,10 +1215,10 @@ static int __maybe_unused brcmuart_resume(struct device *dev)
+@@ -1196,10 +1196,10 @@ static int __maybe_unused brcmuart_resume(struct device *dev)
  
  	if (priv->saved_mctrl & TIOCM_RTS) {
  		/* Restore RTS */
@@ -1696,10 +1694,10 @@ index 7fa66501792d..8b30ca8fdd3f 100644
  
  int serial8250_tx_dma(struct uart_8250_port *p)
 diff --git a/drivers/tty/serial/8250/8250_dw.c b/drivers/tty/serial/8250/8250_dw.c
-index 8aed33be2ebf..5367bcc6256c 100644
+index a1f2259cc9a9..53c284bb271d 100644
 --- a/drivers/tty/serial/8250/8250_dw.c
 +++ b/drivers/tty/serial/8250/8250_dw.c
-@@ -290,20 +290,20 @@ static int dw8250_handle_irq(struct uart_port *p)
+@@ -263,20 +263,20 @@ static int dw8250_handle_irq(struct uart_port *p)
  	 * so we limit the workaround only to non-DMA mode.
  	 */
  	if (!up->dma && rx_timeout) {
@@ -1725,10 +1723,10 @@ index 8aed33be2ebf..5367bcc6256c 100644
  		if (status & (UART_LSR_DR | UART_LSR_BI)) {
  			dw8250_writel_ext(p, RZN1_UART_RDMACR, 0);
 diff --git a/drivers/tty/serial/8250/8250_exar.c b/drivers/tty/serial/8250/8250_exar.c
-index 27430fdd9e76..17be6ad24a0f 100644
+index 4d20f3aa280c..342786064590 100644
 --- a/drivers/tty/serial/8250/8250_exar.c
 +++ b/drivers/tty/serial/8250/8250_exar.c
-@@ -243,9 +243,9 @@ static int xr17v35x_startup(struct uart_port *port)
+@@ -201,9 +201,9 @@ static int xr17v35x_startup(struct uart_port *port)
  	 *
  	 * Synchronize UART_IER access against the console.
  	 */
@@ -1768,7 +1766,7 @@ index 6af4e1c1210a..f522eb5026c9 100644
  	}
  
 diff --git a/drivers/tty/serial/8250/8250_mtk.c b/drivers/tty/serial/8250/8250_mtk.c
-index 28f9a2679a20..33699e86eb52 100644
+index 74da5676ce67..23457daae8a1 100644
 --- a/drivers/tty/serial/8250/8250_mtk.c
 +++ b/drivers/tty/serial/8250/8250_mtk.c
 @@ -102,7 +102,7 @@ static void mtk8250_dma_rx_complete(void *param)
@@ -1789,7 +1787,7 @@ index 28f9a2679a20..33699e86eb52 100644
  }
  
  static void mtk8250_rx_dma(struct uart_8250_port *up)
-@@ -372,7 +372,7 @@ mtk8250_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -368,7 +368,7 @@ mtk8250_set_termios(struct uart_port *port, struct ktermios *termios,
  	 * Ok, we're now changing the port state.  Do it with
  	 * interrupts disabled.
  	 */
@@ -1798,7 +1796,7 @@ index 28f9a2679a20..33699e86eb52 100644
  
  	/*
  	 * Update the per-port timeout.
-@@ -420,7 +420,7 @@ mtk8250_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -416,7 +416,7 @@ mtk8250_set_termios(struct uart_port *port, struct ktermios *termios,
  	if (uart_console(port))
  		up->port.cons->cflag = termios->c_cflag;
  
@@ -1808,10 +1806,10 @@ index 28f9a2679a20..33699e86eb52 100644
  	if (tty_termios_baud_rate(termios))
  		tty_termios_encode_baud_rate(termios, baud, baud);
 diff --git a/drivers/tty/serial/8250/8250_omap.c b/drivers/tty/serial/8250/8250_omap.c
-index 8f472a2080ff..78fc1f17d5e2 100644
+index 346167afe9e1..db5519ce0192 100644
 --- a/drivers/tty/serial/8250/8250_omap.c
 +++ b/drivers/tty/serial/8250/8250_omap.c
-@@ -405,7 +405,7 @@ static void omap_8250_set_termios(struct uart_port *port,
+@@ -401,7 +401,7 @@ static void omap_8250_set_termios(struct uart_port *port,
  	 * interrupts disabled.
  	 */
  	pm_runtime_get_sync(port->dev);
@@ -1820,7 +1818,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	/*
  	 * Update the per-port timeout.
-@@ -508,7 +508,7 @@ static void omap_8250_set_termios(struct uart_port *port,
+@@ -504,7 +504,7 @@ static void omap_8250_set_termios(struct uart_port *port,
  	}
  	omap8250_restore_regs(up);
  
@@ -1829,7 +1827,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  	pm_runtime_mark_last_busy(port->dev);
  	pm_runtime_put_autosuspend(port->dev);
  
-@@ -533,7 +533,7 @@ static void omap_8250_pm(struct uart_port *port, unsigned int state,
+@@ -529,7 +529,7 @@ static void omap_8250_pm(struct uart_port *port, unsigned int state,
  	pm_runtime_get_sync(port->dev);
  
  	/* Synchronize UART_IER access against the console. */
@@ -1838,7 +1836,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
  	efr = serial_in(up, UART_EFR);
-@@ -545,7 +545,7 @@ static void omap_8250_pm(struct uart_port *port, unsigned int state,
+@@ -541,7 +541,7 @@ static void omap_8250_pm(struct uart_port *port, unsigned int state,
  	serial_out(up, UART_EFR, efr);
  	serial_out(up, UART_LCR, 0);
  
@@ -1847,7 +1845,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	pm_runtime_mark_last_busy(port->dev);
  	pm_runtime_put_autosuspend(port->dev);
-@@ -676,7 +676,7 @@ static irqreturn_t omap8250_irq(int irq, void *dev_id)
+@@ -660,7 +660,7 @@ static irqreturn_t omap8250_irq(int irq, void *dev_id)
  		unsigned long delay;
  
  		/* Synchronize UART_IER access against the console. */
@@ -1856,7 +1854,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  		up->ier = port->serial_in(port, UART_IER);
  		if (up->ier & (UART_IER_RLSI | UART_IER_RDI)) {
  			port->ops->stop_rx(port);
-@@ -686,7 +686,7 @@ static irqreturn_t omap8250_irq(int irq, void *dev_id)
+@@ -670,7 +670,7 @@ static irqreturn_t omap8250_irq(int irq, void *dev_id)
  			 */
  			cancel_delayed_work(&up->overrun_backoff);
  		}
@@ -1865,7 +1863,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  		delay = msecs_to_jiffies(up->overrun_backoff_time_ms);
  		schedule_delayed_work(&up->overrun_backoff, delay);
-@@ -733,10 +733,10 @@ static int omap_8250_startup(struct uart_port *port)
+@@ -717,10 +717,10 @@ static int omap_8250_startup(struct uart_port *port)
  	}
  
  	/* Synchronize UART_IER access against the console. */
@@ -1878,7 +1876,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  #ifdef CONFIG_PM
  	up->capabilities |= UART_CAP_RPM;
-@@ -749,9 +749,9 @@ static int omap_8250_startup(struct uart_port *port)
+@@ -733,9 +733,9 @@ static int omap_8250_startup(struct uart_port *port)
  	serial_out(up, UART_OMAP_WER, priv->wer);
  
  	if (up->dma && !(priv->habit & UART_HAS_EFR2)) {
@@ -1890,7 +1888,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  	}
  
  	enable_irq(up->port.irq);
-@@ -777,10 +777,10 @@ static void omap_8250_shutdown(struct uart_port *port)
+@@ -761,10 +761,10 @@ static void omap_8250_shutdown(struct uart_port *port)
  		serial_out(up, UART_OMAP_EFR2, 0x0);
  
  	/* Synchronize UART_IER access against the console. */
@@ -1903,7 +1901,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  	disable_irq_nosync(up->port.irq);
  	dev_pm_clear_wake_irq(port->dev);
  
-@@ -805,10 +805,10 @@ static void omap_8250_throttle(struct uart_port *port)
+@@ -789,10 +789,10 @@ static void omap_8250_throttle(struct uart_port *port)
  
  	pm_runtime_get_sync(port->dev);
  
@@ -1916,7 +1914,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	pm_runtime_mark_last_busy(port->dev);
  	pm_runtime_put_autosuspend(port->dev);
-@@ -823,14 +823,14 @@ static void omap_8250_unthrottle(struct uart_port *port)
+@@ -807,14 +807,14 @@ static void omap_8250_unthrottle(struct uart_port *port)
  	pm_runtime_get_sync(port->dev);
  
  	/* Synchronize UART_IER access against the console. */
@@ -1933,7 +1931,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	pm_runtime_mark_last_busy(port->dev);
  	pm_runtime_put_autosuspend(port->dev);
-@@ -974,7 +974,7 @@ static void __dma_rx_complete(void *param)
+@@ -958,7 +958,7 @@ static void __dma_rx_complete(void *param)
  	unsigned long flags;
  
  	/* Synchronize UART_IER access against the console. */
@@ -1942,7 +1940,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	/*
  	 * If the tx status is not DMA_COMPLETE, then this is a delayed
-@@ -983,7 +983,7 @@ static void __dma_rx_complete(void *param)
+@@ -967,7 +967,7 @@ static void __dma_rx_complete(void *param)
  	 */
  	if (dmaengine_tx_status(dma->rxchan, dma->rx_cookie, &state) !=
  			DMA_COMPLETE) {
@@ -1951,7 +1949,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  		return;
  	}
  	__dma_rx_do_complete(p);
-@@ -994,7 +994,7 @@ static void __dma_rx_complete(void *param)
+@@ -978,7 +978,7 @@ static void __dma_rx_complete(void *param)
  			omap_8250_rx_dma(p);
  	}
  
@@ -1960,7 +1958,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  }
  
  static void omap_8250_rx_dma_flush(struct uart_8250_port *p)
-@@ -1099,7 +1099,7 @@ static void omap_8250_dma_tx_complete(void *param)
+@@ -1083,7 +1083,7 @@ static void omap_8250_dma_tx_complete(void *param)
  	dma_sync_single_for_cpu(dma->txchan->device->dev, dma->tx_addr,
  				UART_XMIT_SIZE, DMA_TO_DEVICE);
  
@@ -1969,7 +1967,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	dma->tx_running = 0;
  
-@@ -1128,7 +1128,7 @@ static void omap_8250_dma_tx_complete(void *param)
+@@ -1112,7 +1112,7 @@ static void omap_8250_dma_tx_complete(void *param)
  		serial8250_set_THRI(p);
  	}
  
@@ -1978,7 +1976,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  }
  
  static int omap_8250_tx_dma(struct uart_8250_port *p)
-@@ -1294,7 +1294,7 @@ static int omap_8250_dma_handle_irq(struct uart_port *port)
+@@ -1278,7 +1278,7 @@ static int omap_8250_dma_handle_irq(struct uart_port *port)
  		return IRQ_HANDLED;
  	}
  
@@ -1987,7 +1985,7 @@ index 8f472a2080ff..78fc1f17d5e2 100644
  
  	status = serial_port_in(port, UART_LSR);
  
-@@ -1774,15 +1774,15 @@ static int omap8250_runtime_resume(struct device *dev)
+@@ -1758,15 +1758,15 @@ static int omap8250_runtime_resume(struct device *dev)
  		up = serial8250_get_port(priv->line);
  
  	if (up && omap8250_lost_context(up)) {
@@ -3387,7 +3385,7 @@ index ad4ae19b6ce3..1aa5b2b49c26 100644
  
  static struct console arc_console = {
 diff --git a/drivers/tty/serial/atmel_serial.c b/drivers/tty/serial/atmel_serial.c
-index bcca5627afac..5a3f2fc476f9 100644
+index 88cdafa5ac54..1946fafc3f3e 100644
 --- a/drivers/tty/serial/atmel_serial.c
 +++ b/drivers/tty/serial/atmel_serial.c
 @@ -861,7 +861,7 @@ static void atmel_complete_tx_dma(void *arg)
@@ -3470,7 +3468,7 @@ index bcca5627afac..5a3f2fc476f9 100644
  	}
  }
 diff --git a/drivers/tty/serial/bcm63xx_uart.c b/drivers/tty/serial/bcm63xx_uart.c
-index 44c27e5cefbc..b104c36ce5c0 100644
+index 0dd8cceb837c..4a08fd5ee61b 100644
 --- a/drivers/tty/serial/bcm63xx_uart.c
 +++ b/drivers/tty/serial/bcm63xx_uart.c
 @@ -201,7 +201,7 @@ static void bcm_uart_break_ctl(struct uart_port *port, int ctl)
@@ -3491,7 +3489,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  }
  
  /*
-@@ -335,7 +335,7 @@ static irqreturn_t bcm_uart_interrupt(int irq, void *dev_id)
+@@ -332,7 +332,7 @@ static irqreturn_t bcm_uart_interrupt(int irq, void *dev_id)
  	unsigned int irqstat;
  
  	port = dev_id;
@@ -3500,7 +3498,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  
  	irqstat = bcm_uart_readl(port, UART_IR_REG);
  	if (irqstat & UART_RX_INT_STAT)
-@@ -356,7 +356,7 @@ static irqreturn_t bcm_uart_interrupt(int irq, void *dev_id)
+@@ -353,7 +353,7 @@ static irqreturn_t bcm_uart_interrupt(int irq, void *dev_id)
  					       estat & UART_EXTINP_DCD_MASK);
  	}
  
@@ -3509,7 +3507,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  	return IRQ_HANDLED;
  }
  
-@@ -454,9 +454,9 @@ static void bcm_uart_shutdown(struct uart_port *port)
+@@ -451,9 +451,9 @@ static void bcm_uart_shutdown(struct uart_port *port)
  {
  	unsigned long flags;
  
@@ -3521,7 +3519,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  
  	bcm_uart_disable(port);
  	bcm_uart_flush(port);
-@@ -473,7 +473,7 @@ static void bcm_uart_set_termios(struct uart_port *port, struct ktermios *new,
+@@ -470,7 +470,7 @@ static void bcm_uart_set_termios(struct uart_port *port, struct ktermios *new,
  	unsigned long flags;
  	int tries;
  
@@ -3530,7 +3528,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  
  	/* Drain the hot tub fully before we power it off for the winter. */
  	for (tries = 3; !bcm_uart_tx_empty(port) && tries; tries--)
-@@ -549,7 +549,7 @@ static void bcm_uart_set_termios(struct uart_port *port, struct ktermios *new,
+@@ -546,7 +546,7 @@ static void bcm_uart_set_termios(struct uart_port *port, struct ktermios *new,
  
  	uart_update_timeout(port, new->c_cflag, baud);
  	bcm_uart_enable(port);
@@ -3539,7 +3537,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  }
  
  /*
-@@ -715,9 +715,9 @@ static void bcm_console_write(struct console *co, const char *s,
+@@ -712,9 +712,9 @@ static void bcm_console_write(struct console *co, const char *s,
  		/* bcm_uart_interrupt() already took the lock */
  		locked = 0;
  	} else if (oops_in_progress) {
@@ -3551,7 +3549,7 @@ index 44c27e5cefbc..b104c36ce5c0 100644
  		locked = 1;
  	}
  
-@@ -728,7 +728,7 @@ static void bcm_console_write(struct console *co, const char *s,
+@@ -725,7 +725,7 @@ static void bcm_console_write(struct console *co, const char *s,
  	wait_for_xmitr(port);
  
  	if (locked)
@@ -3903,7 +3901,7 @@ index 249cb380c3c6..7fa809a405e8 100644
  
  /*
 diff --git a/drivers/tty/serial/fsl_lpuart.c b/drivers/tty/serial/fsl_lpuart.c
-index 8bd0f8e45b14..58c2c460ccd8 100644
+index 385b41275e8b..71d0cbd74807 100644
 --- a/drivers/tty/serial/fsl_lpuart.c
 +++ b/drivers/tty/serial/fsl_lpuart.c
 @@ -532,9 +532,9 @@ static void lpuart_dma_tx_complete(void *arg)
@@ -4205,7 +4203,7 @@ index 8bd0f8e45b14..58c2c460ccd8 100644
  }
  
  /*
-@@ -3093,7 +3093,7 @@ static int lpuart_suspend(struct device *dev)
+@@ -3092,7 +3092,7 @@ static int lpuart_suspend(struct device *dev)
  	uart_suspend_port(&lpuart_reg, &sport->port);
  
  	if (lpuart_uport_is_active(sport)) {
@@ -4214,7 +4212,7 @@ index 8bd0f8e45b14..58c2c460ccd8 100644
  		if (lpuart_is_32(sport)) {
  			/* disable Rx/Tx and interrupts */
  			temp = lpuart32_read(&sport->port, UARTCTRL);
-@@ -3105,7 +3105,7 @@ static int lpuart_suspend(struct device *dev)
+@@ -3104,7 +3104,7 @@ static int lpuart_suspend(struct device *dev)
  			temp &= ~(UARTCR2_TE | UARTCR2_TIE | UARTCR2_TCIE);
  			writeb(temp, sport->port.membase + UARTCR2);
  		}
@@ -4223,7 +4221,7 @@ index 8bd0f8e45b14..58c2c460ccd8 100644
  
  		if (sport->lpuart_dma_rx_use) {
  			/*
-@@ -3118,7 +3118,7 @@ static int lpuart_suspend(struct device *dev)
+@@ -3117,7 +3117,7 @@ static int lpuart_suspend(struct device *dev)
  			lpuart_dma_rx_free(&sport->port);
  
  			/* Disable Rx DMA to use UART port as wakeup source */
@@ -4232,7 +4230,7 @@ index 8bd0f8e45b14..58c2c460ccd8 100644
  			if (lpuart_is_32(sport)) {
  				temp = lpuart32_read(&sport->port, UARTBAUD);
  				lpuart32_write(&sport->port, temp & ~UARTBAUD_RDMAE,
-@@ -3127,11 +3127,11 @@ static int lpuart_suspend(struct device *dev)
+@@ -3126,11 +3126,11 @@ static int lpuart_suspend(struct device *dev)
  				writeb(readb(sport->port.membase + UARTCR5) &
  				       ~UARTCR5_RDMAS, sport->port.membase + UARTCR5);
  			}
@@ -4246,7 +4244,7 @@ index 8bd0f8e45b14..58c2c460ccd8 100644
  			if (lpuart_is_32(sport)) {
  				temp = lpuart32_read(&sport->port, UARTBAUD);
  				temp &= ~UARTBAUD_TDMAE;
-@@ -3141,7 +3141,7 @@ static int lpuart_suspend(struct device *dev)
+@@ -3140,7 +3140,7 @@ static int lpuart_suspend(struct device *dev)
  				temp &= ~UARTCR5_TDMAS;
  				writeb(temp, sport->port.membase + UARTCR5);
  			}
@@ -4371,10 +4369,10 @@ index 819f957b6b84..a75eafbcbea3 100644
  
  static const char *icom_type(struct uart_port *port)
 diff --git a/drivers/tty/serial/imx.c b/drivers/tty/serial/imx.c
-index a5d0df2ba5c5..267c9af4bd53 100644
+index c77831e91ec2..66420a992539 100644
 --- a/drivers/tty/serial/imx.c
 +++ b/drivers/tty/serial/imx.c
-@@ -586,7 +586,7 @@ static void imx_uart_dma_tx_callback(void *data)
+@@ -584,7 +584,7 @@ static void imx_uart_dma_tx_callback(void *data)
  	unsigned long flags;
  	u32 ucr1;
  
@@ -4383,7 +4381,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	dma_unmap_sg(sport->port.dev, sgl, sport->dma_tx_nents, DMA_TO_DEVICE);
  
-@@ -611,7 +611,7 @@ static void imx_uart_dma_tx_callback(void *data)
+@@ -609,7 +609,7 @@ static void imx_uart_dma_tx_callback(void *data)
  		imx_uart_writel(sport, ucr4, UCR4);
  	}
  
@@ -4392,7 +4390,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  }
  
  /* called with port.lock taken and irqs off */
-@@ -782,11 +782,11 @@ static irqreturn_t imx_uart_rtsint(int irq, void *dev_id)
+@@ -780,11 +780,11 @@ static irqreturn_t imx_uart_rtsint(int irq, void *dev_id)
  	struct imx_port *sport = dev_id;
  	irqreturn_t ret;
  
@@ -4406,7 +4404,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return ret;
  }
-@@ -795,9 +795,9 @@ static irqreturn_t imx_uart_txint(int irq, void *dev_id)
+@@ -793,9 +793,9 @@ static irqreturn_t imx_uart_txint(int irq, void *dev_id)
  {
  	struct imx_port *sport = dev_id;
  
@@ -4418,7 +4416,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  	return IRQ_HANDLED;
  }
  
-@@ -911,11 +911,11 @@ static irqreturn_t imx_uart_rxint(int irq, void *dev_id)
+@@ -909,11 +909,11 @@ static irqreturn_t imx_uart_rxint(int irq, void *dev_id)
  	struct imx_port *sport = dev_id;
  	irqreturn_t ret;
  
@@ -4432,7 +4430,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return ret;
  }
-@@ -978,7 +978,7 @@ static irqreturn_t imx_uart_int(int irq, void *dev_id)
+@@ -976,7 +976,7 @@ static irqreturn_t imx_uart_int(int irq, void *dev_id)
  	unsigned int usr1, usr2, ucr1, ucr2, ucr3, ucr4;
  	irqreturn_t ret = IRQ_NONE;
  
@@ -4441,7 +4439,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	usr1 = imx_uart_readl(sport, USR1);
  	usr2 = imx_uart_readl(sport, USR2);
-@@ -1048,7 +1048,7 @@ static irqreturn_t imx_uart_int(int irq, void *dev_id)
+@@ -1046,7 +1046,7 @@ static irqreturn_t imx_uart_int(int irq, void *dev_id)
  		ret = IRQ_HANDLED;
  	}
  
@@ -4450,7 +4448,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return ret;
  }
-@@ -1131,7 +1131,7 @@ static void imx_uart_break_ctl(struct uart_port *port, int break_state)
+@@ -1129,7 +1129,7 @@ static void imx_uart_break_ctl(struct uart_port *port, int break_state)
  	unsigned long flags;
  	u32 ucr1;
  
@@ -4459,7 +4457,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	ucr1 = imx_uart_readl(sport, UCR1) & ~UCR1_SNDBRK;
  
-@@ -1140,7 +1140,7 @@ static void imx_uart_break_ctl(struct uart_port *port, int break_state)
+@@ -1138,7 +1138,7 @@ static void imx_uart_break_ctl(struct uart_port *port, int break_state)
  
  	imx_uart_writel(sport, ucr1, UCR1);
  
@@ -4468,7 +4466,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  }
  
  /*
-@@ -1153,9 +1153,9 @@ static void imx_uart_timeout(struct timer_list *t)
+@@ -1151,9 +1151,9 @@ static void imx_uart_timeout(struct timer_list *t)
  	unsigned long flags;
  
  	if (sport->port.state) {
@@ -4480,7 +4478,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  		mod_timer(&sport->timer, jiffies + MCTRL_TIMEOUT);
  	}
-@@ -1185,9 +1185,9 @@ static void imx_uart_dma_rx_callback(void *data)
+@@ -1183,9 +1183,9 @@ static void imx_uart_dma_rx_callback(void *data)
  	status = dmaengine_tx_status(chan, sport->rx_cookie, &state);
  
  	if (status == DMA_ERROR) {
@@ -4492,7 +4490,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  		return;
  	}
  
-@@ -1216,9 +1216,9 @@ static void imx_uart_dma_rx_callback(void *data)
+@@ -1214,9 +1214,9 @@ static void imx_uart_dma_rx_callback(void *data)
  		r_bytes = rx_ring->head - rx_ring->tail;
  
  		/* If we received something, check for 0xff flood */
@@ -4504,7 +4502,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  		if (!(sport->port.ignore_status_mask & URXD_DUMMY_READ)) {
  
-@@ -1476,7 +1476,7 @@ static int imx_uart_startup(struct uart_port *port)
+@@ -1474,7 +1474,7 @@ static int imx_uart_startup(struct uart_port *port)
  	if (!uart_console(port) && imx_uart_dma_init(sport) == 0)
  		dma_is_inited = 1;
  
@@ -4513,7 +4511,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	/* Reset fifo's and state machines */
  	imx_uart_soft_reset(sport);
-@@ -1549,7 +1549,7 @@ static int imx_uart_startup(struct uart_port *port)
+@@ -1547,7 +1547,7 @@ static int imx_uart_startup(struct uart_port *port)
  
  	imx_uart_disable_loopback_rs485(sport);
  
@@ -4522,7 +4520,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return 0;
  }
-@@ -1574,21 +1574,21 @@ static void imx_uart_shutdown(struct uart_port *port)
+@@ -1572,21 +1572,21 @@ static void imx_uart_shutdown(struct uart_port *port)
  			sport->dma_is_rxing = 0;
  		}
  
@@ -4548,7 +4546,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	/*
  	 * Stop our timer.
-@@ -1599,7 +1599,7 @@ static void imx_uart_shutdown(struct uart_port *port)
+@@ -1597,7 +1597,7 @@ static void imx_uart_shutdown(struct uart_port *port)
  	 * Disable all interrupts, port and break condition.
  	 */
  
@@ -4557,7 +4555,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	ucr1 = imx_uart_readl(sport, UCR1);
  	ucr1 &= ~(UCR1_TRDYEN | UCR1_RRDYEN | UCR1_RTSDEN | UCR1_RXDMAEN |
-@@ -1621,7 +1621,7 @@ static void imx_uart_shutdown(struct uart_port *port)
+@@ -1619,7 +1619,7 @@ static void imx_uart_shutdown(struct uart_port *port)
  	ucr4 &= ~UCR4_TCEN;
  	imx_uart_writel(sport, ucr4, UCR4);
  
@@ -4566,7 +4564,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	clk_disable_unprepare(sport->clk_per);
  	clk_disable_unprepare(sport->clk_ipg);
-@@ -1684,7 +1684,7 @@ imx_uart_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -1682,7 +1682,7 @@ imx_uart_set_termios(struct uart_port *port, struct ktermios *termios,
  	baud = uart_get_baud_rate(port, termios, old, 50, port->uartclk / 16);
  	quot = uart_get_divisor(port, baud);
  
@@ -4575,7 +4573,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	/*
  	 * Read current UCR2 and save it for future use, then clear all the bits
-@@ -1812,7 +1812,7 @@ imx_uart_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -1810,7 +1810,7 @@ imx_uart_set_termios(struct uart_port *port, struct ktermios *termios,
  	if (UART_ENABLE_MS(&sport->port, termios->c_cflag))
  		imx_uart_enable_ms(&sport->port);
  
@@ -4584,7 +4582,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  }
  
  static const char *imx_uart_type(struct uart_port *port)
-@@ -1874,7 +1874,7 @@ static int imx_uart_poll_init(struct uart_port *port)
+@@ -1872,7 +1872,7 @@ static int imx_uart_poll_init(struct uart_port *port)
  
  	imx_uart_setup_ufcr(sport, TXTL_DEFAULT, RXTL_DEFAULT);
  
@@ -4593,7 +4591,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	/*
  	 * Be careful about the order of enabling bits here. First enable the
-@@ -1902,7 +1902,7 @@ static int imx_uart_poll_init(struct uart_port *port)
+@@ -1900,7 +1900,7 @@ static int imx_uart_poll_init(struct uart_port *port)
  	imx_uart_writel(sport, ucr1 | UCR1_RRDYEN, UCR1);
  	imx_uart_writel(sport, ucr2 | UCR2_ATEN, UCR2);
  
@@ -4602,7 +4600,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return 0;
  }
-@@ -2022,9 +2022,9 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
+@@ -2015,9 +2015,9 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
  	if (sport->port.sysrq)
  		locked = 0;
  	else if (oops_in_progress)
@@ -4614,7 +4612,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	/*
  	 *	First, save UCR1/2/3 and then disable interrupts
-@@ -2052,7 +2052,7 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
+@@ -2045,7 +2045,7 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
  	imx_uart_ucrs_restore(sport, &old_ucr);
  
  	if (locked)
@@ -4623,7 +4621,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  }
  
  /*
-@@ -2210,10 +2210,10 @@ static enum hrtimer_restart imx_trigger_start_tx(struct hrtimer *t)
+@@ -2203,10 +2203,10 @@ static enum hrtimer_restart imx_trigger_start_tx(struct hrtimer *t)
  	struct imx_port *sport = container_of(t, struct imx_port, trigger_start_tx);
  	unsigned long flags;
  
@@ -4636,7 +4634,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return HRTIMER_NORESTART;
  }
-@@ -2223,10 +2223,10 @@ static enum hrtimer_restart imx_trigger_stop_tx(struct hrtimer *t)
+@@ -2216,10 +2216,10 @@ static enum hrtimer_restart imx_trigger_stop_tx(struct hrtimer *t)
  	struct imx_port *sport = container_of(t, struct imx_port, trigger_stop_tx);
  	unsigned long flags;
  
@@ -4649,7 +4647,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  
  	return HRTIMER_NORESTART;
  }
-@@ -2493,9 +2493,9 @@ static void imx_uart_restore_context(struct imx_port *sport)
+@@ -2486,9 +2486,9 @@ static void imx_uart_restore_context(struct imx_port *sport)
  {
  	unsigned long flags;
  
@@ -4661,7 +4659,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  		return;
  	}
  
-@@ -2510,7 +2510,7 @@ static void imx_uart_restore_context(struct imx_port *sport)
+@@ -2503,7 +2503,7 @@ static void imx_uart_restore_context(struct imx_port *sport)
  	imx_uart_writel(sport, sport->saved_reg[2], UCR3);
  	imx_uart_writel(sport, sport->saved_reg[3], UCR4);
  	sport->context_saved = false;
@@ -4670,7 +4668,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  }
  
  static void imx_uart_save_context(struct imx_port *sport)
-@@ -2518,7 +2518,7 @@ static void imx_uart_save_context(struct imx_port *sport)
+@@ -2511,7 +2511,7 @@ static void imx_uart_save_context(struct imx_port *sport)
  	unsigned long flags;
  
  	/* Save necessary regs */
@@ -4679,7 +4677,7 @@ index a5d0df2ba5c5..267c9af4bd53 100644
  	sport->saved_reg[0] = imx_uart_readl(sport, UCR1);
  	sport->saved_reg[1] = imx_uart_readl(sport, UCR2);
  	sport->saved_reg[2] = imx_uart_readl(sport, UCR3);
-@@ -2530,7 +2530,7 @@ static void imx_uart_save_context(struct imx_port *sport)
+@@ -2523,7 +2523,7 @@ static void imx_uart_save_context(struct imx_port *sport)
  	sport->saved_reg[8] = imx_uart_readl(sport, UBMR);
  	sport->saved_reg[9] = imx_uart_readl(sport, IMX21_UTS);
  	sport->context_saved = true;
@@ -5112,7 +5110,7 @@ index b38fe4728c26..5149a947b7fe 100644
  	/* Don't rewrite B0 */
  	if (tty_termios_baud_rate(termios))
 diff --git a/drivers/tty/serial/ma35d1_serial.c b/drivers/tty/serial/ma35d1_serial.c
-index 99225f1e02ac..faccd772c68c 100644
+index 69da24565b99..73910c54d6be 100644
 --- a/drivers/tty/serial/ma35d1_serial.c
 +++ b/drivers/tty/serial/ma35d1_serial.c
 @@ -269,16 +269,16 @@ static void receive_chars(struct uart_ma35d1_port *up)
@@ -5193,7 +5191,7 @@ index 99225f1e02ac..faccd772c68c 100644
  
  static int __init ma35d1serial_console_setup(struct console *co, char *options)
 diff --git a/drivers/tty/serial/mcf.c b/drivers/tty/serial/mcf.c
-index aea29b4e6567..ee40af20a08f 100644
+index 1666ce012e5e..91b15243f6c6 100644
 --- a/drivers/tty/serial/mcf.c
 +++ b/drivers/tty/serial/mcf.c
 @@ -135,12 +135,12 @@ static void mcf_break_ctl(struct uart_port *port, int break_state)
@@ -7149,10 +7147,10 @@ index f3cd69346482..dbec29d9a6c3 100644
  
  static int __init sbd_console_setup(struct console *co, char *options)
 diff --git a/drivers/tty/serial/sc16is7xx.c b/drivers/tty/serial/sc16is7xx.c
-index 7a9924d9b294..be9ae5cdd1b8 100644
+index f75b8bceb8ca..2d7470457af4 100644
 --- a/drivers/tty/serial/sc16is7xx.c
 +++ b/drivers/tty/serial/sc16is7xx.c
-@@ -817,6 +817,7 @@ static void sc16is7xx_tx_proc(struct kthread_work *ws)
+@@ -804,6 +804,7 @@ static void sc16is7xx_tx_proc(struct kthread_work *ws)
  {
  	struct uart_port *port = &(to_sc16is7xx_one(ws, tx_work)->port);
  	struct sc16is7xx_one *one = to_sc16is7xx_one(port, port);
@@ -7160,7 +7158,7 @@ index 7a9924d9b294..be9ae5cdd1b8 100644
  
  	if ((port->rs485.flags & SER_RS485_ENABLED) &&
  	    (port->rs485.delay_rts_before_send > 0))
-@@ -825,6 +826,10 @@ static void sc16is7xx_tx_proc(struct kthread_work *ws)
+@@ -812,6 +813,10 @@ static void sc16is7xx_tx_proc(struct kthread_work *ws)
  	mutex_lock(&one->efr_lock);
  	sc16is7xx_handle_tx(port);
  	mutex_unlock(&one->efr_lock);
@@ -7312,7 +7310,7 @@ index d4ec943cb8e9..6d4006b41975 100644
  
  static const char *tegra_uart_type(struct uart_port *u)
 diff --git a/drivers/tty/serial/serial_core.c b/drivers/tty/serial/serial_core.c
-index ed8798fdf522..f0cd976e22e2 100644
+index 2eceef54e0b3..6cd64ccc2035 100644
 --- a/drivers/tty/serial/serial_core.c
 +++ b/drivers/tty/serial/serial_core.c
 @@ -79,7 +79,7 @@ static inline void uart_port_deref(struct uart_port *uport)
@@ -7380,7 +7378,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	}
  	uart_port_deref(port);
  }
-@@ -1106,9 +1106,9 @@ static int uart_tiocmget(struct tty_struct *tty)
+@@ -1098,9 +1098,9 @@ static int uart_tiocmget(struct tty_struct *tty)
  
  	if (!tty_io_error(tty)) {
  		result = uport->mctrl;
@@ -7392,7 +7390,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	}
  out:
  	mutex_unlock(&port->mutex);
-@@ -1244,16 +1244,16 @@ static int uart_wait_modem_status(struct uart_state *state, unsigned long arg)
+@@ -1236,16 +1236,16 @@ static int uart_wait_modem_status(struct uart_state *state, unsigned long arg)
  	uport = uart_port_ref(state);
  	if (!uport)
  		return -EIO;
@@ -7413,7 +7411,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  		set_current_state(TASK_INTERRUPTIBLE);
  
-@@ -1298,9 +1298,9 @@ static int uart_get_icount(struct tty_struct *tty,
+@@ -1290,9 +1290,9 @@ static int uart_get_icount(struct tty_struct *tty,
  	uport = uart_port_ref(state);
  	if (!uport)
  		return -EIO;
@@ -7425,7 +7423,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	uart_port_deref(uport);
  
  	icount->cts         = cnow.cts;
-@@ -1453,9 +1453,9 @@ static int uart_rs485_config(struct uart_port *port)
+@@ -1445,9 +1445,9 @@ static int uart_rs485_config(struct uart_port *port)
  	uart_set_rs485_termination(port, rs485);
  	uart_set_rs485_rx_during_tx(port, rs485);
  
@@ -7437,7 +7435,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	if (ret) {
  		memset(rs485, 0, sizeof(*rs485));
  		/* unset GPIOs */
-@@ -1472,9 +1472,9 @@ static int uart_get_rs485_config(struct uart_port *port,
+@@ -1464,9 +1464,9 @@ static int uart_get_rs485_config(struct uart_port *port,
  	unsigned long flags;
  	struct serial_rs485 aux;
  
@@ -7449,7 +7447,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  	if (copy_to_user(rs485, &aux, sizeof(aux)))
  		return -EFAULT;
-@@ -1502,7 +1502,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
+@@ -1494,7 +1494,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
  	uart_set_rs485_termination(port, &rs485);
  	uart_set_rs485_rx_during_tx(port, &rs485);
  
@@ -7458,7 +7456,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	ret = port->rs485_config(port, &tty->termios, &rs485);
  	if (!ret) {
  		port->rs485 = rs485;
-@@ -1511,7 +1511,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
+@@ -1503,7 +1503,7 @@ static int uart_set_rs485_config(struct tty_struct *tty, struct uart_port *port,
  		if (!(rs485.flags & SER_RS485_ENABLED))
  			port->ops->set_mctrl(port, port->mctrl);
  	}
@@ -7467,7 +7465,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	if (ret) {
  		/* restore old GPIO settings */
  		gpiod_set_value_cansleep(port->rs485_term_gpio,
-@@ -1536,9 +1536,9 @@ static int uart_get_iso7816_config(struct uart_port *port,
+@@ -1528,9 +1528,9 @@ static int uart_get_iso7816_config(struct uart_port *port,
  	if (!port->iso7816_config)
  		return -ENOTTY;
  
@@ -7479,7 +7477,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  	if (copy_to_user(iso7816, &aux, sizeof(aux)))
  		return -EFAULT;
-@@ -1567,9 +1567,9 @@ static int uart_set_iso7816_config(struct uart_port *port,
+@@ -1559,9 +1559,9 @@ static int uart_set_iso7816_config(struct uart_port *port,
  		if (iso7816.reserved[i])
  			return -EINVAL;
  
@@ -7491,7 +7489,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	if (ret)
  		return ret;
  
-@@ -1786,9 +1786,9 @@ static void uart_tty_port_shutdown(struct tty_port *port)
+@@ -1778,9 +1778,9 @@ static void uart_tty_port_shutdown(struct tty_port *port)
  	if (WARN(!uport, "detached port still initialized!\n"))
  		return;
  
@@ -7503,7 +7501,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  	serial_base_port_shutdown(uport);
  	uart_port_shutdown(port);
-@@ -1803,11 +1803,11 @@ static void uart_tty_port_shutdown(struct tty_port *port)
+@@ -1795,11 +1795,11 @@ static void uart_tty_port_shutdown(struct tty_port *port)
  	/*
  	 * Free the transmit buffer.
  	 */
@@ -7517,7 +7515,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  	free_page((unsigned long)buf);
  
-@@ -1950,10 +1950,10 @@ static bool uart_carrier_raised(struct tty_port *port)
+@@ -1942,10 +1942,10 @@ static bool uart_carrier_raised(struct tty_port *port)
  	 */
  	if (WARN_ON(!uport))
  		return true;
@@ -7530,7 +7528,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  	uart_port_deref(uport);
  
  	return mctrl & TIOCM_CAR;
-@@ -2070,9 +2070,9 @@ static void uart_line_info(struct seq_file *m, struct uart_driver *drv, int i)
+@@ -2062,9 +2062,9 @@ static void uart_line_info(struct seq_file *m, struct uart_driver *drv, int i)
  		pm_state = state->pm_state;
  		if (pm_state != UART_PM_STATE_ON)
  			uart_change_pm(state, UART_PM_STATE_ON);
@@ -7542,7 +7540,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  		if (pm_state != UART_PM_STATE_ON)
  			uart_change_pm(state, pm_state);
  
-@@ -2411,9 +2411,9 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2403,9 +2403,9 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
  	 */
  	if (!console_suspend_enabled && uart_console(uport)) {
  		if (uport->ops->start_rx) {
@@ -7554,7 +7552,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  		}
  		goto unlock;
  	}
-@@ -2428,7 +2428,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2420,7 +2420,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
  		tty_port_set_suspended(port, true);
  		tty_port_set_initialized(port, false);
  
@@ -7563,7 +7561,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  		ops->stop_tx(uport);
  		if (!(uport->rs485.flags & SER_RS485_ENABLED))
  			ops->set_mctrl(uport, 0);
-@@ -2436,7 +2436,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2428,7 +2428,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
  		mctrl = uport->mctrl;
  		uport->mctrl = 0;
  		ops->stop_rx(uport);
@@ -7572,7 +7570,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  
  		/*
  		 * Wait for the transmitter to empty.
-@@ -2508,9 +2508,9 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2500,9 +2500,9 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
  			uart_change_pm(state, UART_PM_STATE_ON);
  		uport->ops->set_termios(uport, &termios, NULL);
  		if (!console_suspend_enabled && uport->ops->start_rx) {
@@ -7584,7 +7582,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  		}
  		if (console_suspend_enabled)
  			console_start(uport->cons);
-@@ -2521,10 +2521,10 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2513,10 +2513,10 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
  		int ret;
  
  		uart_change_pm(state, UART_PM_STATE_ON);
@@ -7597,7 +7595,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  		if (console_suspend_enabled || !uart_console(uport)) {
  			/* Protected by port mutex for now */
  			struct tty_struct *tty = port->tty;
-@@ -2534,11 +2534,11 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
+@@ -2526,11 +2526,11 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
  				if (tty)
  					uart_change_line_settings(tty, state, NULL);
  				uart_rs485_config(uport);
@@ -7611,7 +7609,7 @@ index ed8798fdf522..f0cd976e22e2 100644
  				tty_port_set_initialized(port, true);
  			} else {
  				/*
-@@ -2650,11 +2650,11 @@ uart_configure_port(struct uart_driver *drv, struct uart_state *state,
+@@ -2642,11 +2642,11 @@ uart_configure_port(struct uart_driver *drv, struct uart_state *state,
  		 * keep the DTR setting that is set in uart_set_options()
  		 * We probably don't need a spinlock around this, but
  		 */
@@ -7648,10 +7646,10 @@ index 7d5aaa8d422b..e51ca593ab86 100644
  	return IRQ_HANDLED;
  }
 diff --git a/drivers/tty/serial/serial_port.c b/drivers/tty/serial/serial_port.c
-index 469ad26cde48..66fd117d8aea 100644
+index d622a9297f65..7d51e66ec88b 100644
 --- a/drivers/tty/serial/serial_port.c
 +++ b/drivers/tty/serial/serial_port.c
-@@ -38,14 +38,14 @@ static int serial_port_runtime_resume(struct device *dev)
+@@ -35,14 +35,14 @@ static int serial_port_runtime_resume(struct device *dev)
  		goto out;
  
  	/* Flush any pending TX for the port */
@@ -7767,7 +7765,7 @@ index be08fb6f749c..eaa980722455 100644
  
  static void
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index f793624fd501..2559c97812fa 100644
+index a560b729fa3b..84ab434c94ba 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -1205,7 +1205,7 @@ static void sci_dma_tx_complete(void *arg)
@@ -7788,7 +7786,7 @@ index f793624fd501..2559c97812fa 100644
  }
  
  /* Locking: called with port lock held */
-@@ -1325,7 +1325,7 @@ static void sci_dma_rx_complete(void *arg)
+@@ -1320,7 +1320,7 @@ static void sci_dma_rx_complete(void *arg)
  	dev_dbg(port->dev, "%s(%d) active cookie %d\n", __func__, port->line,
  		s->active_rx);
  
@@ -7797,7 +7795,7 @@ index f793624fd501..2559c97812fa 100644
  
  	active = sci_dma_rx_find_active(s);
  	if (active >= 0)
-@@ -1352,20 +1352,20 @@ static void sci_dma_rx_complete(void *arg)
+@@ -1347,20 +1347,20 @@ static void sci_dma_rx_complete(void *arg)
  
  	dma_async_issue_pending(chan);
  
@@ -7822,7 +7820,7 @@ index f793624fd501..2559c97812fa 100644
  }
  
  static void sci_dma_tx_release(struct sci_port *s)
-@@ -1414,13 +1414,13 @@ static int sci_dma_rx_submit(struct sci_port *s, bool port_lock_held)
+@@ -1409,13 +1409,13 @@ static int sci_dma_rx_submit(struct sci_port *s, bool port_lock_held)
  fail:
  	/* Switch to PIO */
  	if (!port_lock_held)
@@ -7838,7 +7836,7 @@ index f793624fd501..2559c97812fa 100644
  	return -EAGAIN;
  }
  
-@@ -1442,14 +1442,14 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
+@@ -1437,14 +1437,14 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
  	 * transmit till the end, and then the rest. Take the port lock to get a
  	 * consistent xmit buffer state.
  	 */
@@ -7855,7 +7853,7 @@ index f793624fd501..2559c97812fa 100644
  		return;
  	}
  
-@@ -1457,7 +1457,7 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
+@@ -1452,7 +1452,7 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
  					   DMA_MEM_TO_DEV,
  					   DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
  	if (!desc) {
@@ -7864,7 +7862,7 @@ index f793624fd501..2559c97812fa 100644
  		dev_warn(port->dev, "Failed preparing Tx DMA descriptor\n");
  		goto switch_to_pio;
  	}
-@@ -1469,12 +1469,12 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
+@@ -1464,12 +1464,12 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
  	desc->callback_param = s;
  	s->cookie_tx = dmaengine_submit(desc);
  	if (dma_submit_error(s->cookie_tx)) {
@@ -7879,7 +7877,7 @@ index f793624fd501..2559c97812fa 100644
  	dev_dbg(port->dev, "%s: %p: %d...%d, cookie %d\n",
  		__func__, xmit->buf, tail, head, s->cookie_tx);
  
-@@ -1482,10 +1482,10 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
+@@ -1477,10 +1477,10 @@ static void sci_dma_tx_work_fn(struct work_struct *work)
  	return;
  
  switch_to_pio:
@@ -7892,7 +7890,7 @@ index f793624fd501..2559c97812fa 100644
  	return;
  }
  
-@@ -1502,17 +1502,17 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
+@@ -1497,17 +1497,17 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
  
  	dev_dbg(port->dev, "DMA Rx timed out\n");
  
@@ -7913,7 +7911,7 @@ index f793624fd501..2559c97812fa 100644
  		dev_dbg(port->dev, "Cookie %d #%d has already completed\n",
  			s->active_rx, active);
  
-@@ -1530,7 +1530,7 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
+@@ -1525,7 +1525,7 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
  	 */
  	status = dmaengine_tx_status(s->chan_rx, s->active_rx, &state);
  	if (status == DMA_COMPLETE) {
@@ -7922,7 +7920,7 @@ index f793624fd501..2559c97812fa 100644
  		dev_dbg(port->dev, "Transaction complete after DMA engine was stopped");
  		return HRTIMER_NORESTART;
  	}
-@@ -1551,7 +1551,7 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
+@@ -1546,7 +1546,7 @@ static enum hrtimer_restart sci_dma_rx_timer_fn(struct hrtimer *t)
  
  	sci_dma_rx_reenable_irq(s);
  
@@ -7931,7 +7929,7 @@ index f793624fd501..2559c97812fa 100644
  
  	return HRTIMER_NORESTART;
  }
-@@ -1775,9 +1775,9 @@ static irqreturn_t sci_tx_interrupt(int irq, void *ptr)
+@@ -1770,9 +1770,9 @@ static irqreturn_t sci_tx_interrupt(int irq, void *ptr)
  	struct uart_port *port = ptr;
  	unsigned long flags;
  
@@ -7943,7 +7941,7 @@ index f793624fd501..2559c97812fa 100644
  
  	return IRQ_HANDLED;
  }
-@@ -1791,11 +1791,11 @@ static irqreturn_t sci_tx_end_interrupt(int irq, void *ptr)
+@@ -1786,11 +1786,11 @@ static irqreturn_t sci_tx_end_interrupt(int irq, void *ptr)
  	if (port->type != PORT_SCI)
  		return sci_tx_interrupt(irq, ptr);
  
@@ -7957,7 +7955,7 @@ index f793624fd501..2559c97812fa 100644
  
  	return IRQ_HANDLED;
  }
-@@ -2192,7 +2192,7 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
+@@ -2187,7 +2187,7 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
  		return;
  	}
  
@@ -7966,7 +7964,7 @@ index f793624fd501..2559c97812fa 100644
  	scsptr = serial_port_in(port, SCSPTR);
  	scscr = serial_port_in(port, SCSCR);
  
-@@ -2206,7 +2206,7 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
+@@ -2201,7 +2201,7 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
  
  	serial_port_out(port, SCSPTR, scsptr);
  	serial_port_out(port, SCSCR, scscr);
@@ -7975,7 +7973,7 @@ index f793624fd501..2559c97812fa 100644
  }
  
  static int sci_startup(struct uart_port *port)
-@@ -2238,7 +2238,7 @@ static void sci_shutdown(struct uart_port *port)
+@@ -2233,7 +2233,7 @@ static void sci_shutdown(struct uart_port *port)
  	s->autorts = false;
  	mctrl_gpio_disable_ms(to_sci_port(port)->gpios);
  
@@ -7984,7 +7982,7 @@ index f793624fd501..2559c97812fa 100644
  	sci_stop_rx(port);
  	sci_stop_tx(port);
  	/*
-@@ -2248,7 +2248,7 @@ static void sci_shutdown(struct uart_port *port)
+@@ -2243,7 +2243,7 @@ static void sci_shutdown(struct uart_port *port)
  	scr = serial_port_in(port, SCSCR);
  	serial_port_out(port, SCSCR, scr &
  			(SCSCR_CKE1 | SCSCR_CKE0 | s->hscif_tot));
@@ -7993,7 +7991,7 @@ index f793624fd501..2559c97812fa 100644
  
  #ifdef CONFIG_SERIAL_SH_SCI_DMA
  	if (s->chan_rx_saved) {
-@@ -2550,7 +2550,7 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -2545,7 +2545,7 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
  		serial_port_out(port, SCCKS, sccks);
  	}
  
@@ -8002,7 +8000,7 @@ index f793624fd501..2559c97812fa 100644
  
  	sci_reset(port);
  
-@@ -2672,7 +2672,7 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -2667,7 +2667,7 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
  	if ((termios->c_cflag & CREAD) != 0)
  		sci_start_rx(port);
  
@@ -8011,7 +8009,7 @@ index f793624fd501..2559c97812fa 100644
  
  	sci_port_disable(s);
  
-@@ -3057,9 +3057,9 @@ static void serial_console_write(struct console *co, const char *s,
+@@ -3052,9 +3052,9 @@ static void serial_console_write(struct console *co, const char *s,
  	if (port->sysrq)
  		locked = 0;
  	else if (oops_in_progress)
@@ -8023,7 +8021,7 @@ index f793624fd501..2559c97812fa 100644
  
  	/* first save SCSCR then disable interrupts, keep clock source */
  	ctrl = serial_port_in(port, SCSCR);
-@@ -3079,7 +3079,7 @@ static void serial_console_write(struct console *co, const char *s,
+@@ -3074,7 +3074,7 @@ static void serial_console_write(struct console *co, const char *s,
  	serial_port_out(port, SCSCR, ctrl);
  
  	if (locked)
@@ -9929,7 +9927,7 @@ index b8e60a20416b..ffa5248a90e2 100644
  
  static inline void input_queue_head_incr(struct softnet_data *sd)
 diff --git a/include/linux/printk.h b/include/linux/printk.h
-index e4878bb58f66..ebebc32e78de 100644
+index 8ef499ab3c1e..7a942e987b16 100644
 --- a/include/linux/printk.h
 +++ b/include/linux/printk.h
 @@ -9,6 +9,8 @@
@@ -10136,10 +10134,10 @@ index be65de65fe61..ec46e3b49ee9 100644
  int serial8250_console_exit(struct uart_port *port);
  
 diff --git a/include/linux/serial_core.h b/include/linux/serial_core.h
-index 052df85dfd59..6de3d7aab17d 100644
+index a7d5fa892be2..99d3f1e24bec 100644
 --- a/include/linux/serial_core.h
 +++ b/include/linux/serial_core.h
-@@ -489,6 +489,7 @@ struct uart_port {
+@@ -488,6 +488,7 @@ struct uart_port {
  	struct uart_icount	icount;			/* statistics */
  
  	struct console		*cons;			/* struct console, if any */
@@ -10147,7 +10145,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  	/* flags must be updated while holding port mutex */
  	upf_t			flags;
  
-@@ -596,6 +597,7 @@ struct uart_port {
+@@ -595,6 +596,7 @@ struct uart_port {
  static inline void uart_port_lock(struct uart_port *up)
  {
  	spin_lock(&up->lock);
@@ -10155,7 +10153,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  }
  
  /**
-@@ -605,6 +607,7 @@ static inline void uart_port_lock(struct uart_port *up)
+@@ -604,6 +606,7 @@ static inline void uart_port_lock(struct uart_port *up)
  static inline void uart_port_lock_irq(struct uart_port *up)
  {
  	spin_lock_irq(&up->lock);
@@ -10163,7 +10161,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  }
  
  /**
-@@ -615,6 +618,7 @@ static inline void uart_port_lock_irq(struct uart_port *up)
+@@ -614,6 +617,7 @@ static inline void uart_port_lock_irq(struct uart_port *up)
  static inline void uart_port_lock_irqsave(struct uart_port *up, unsigned long *flags)
  {
  	spin_lock_irqsave(&up->lock, *flags);
@@ -10171,7 +10169,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  }
  
  /**
-@@ -625,7 +629,11 @@ static inline void uart_port_lock_irqsave(struct uart_port *up, unsigned long *f
+@@ -624,7 +628,11 @@ static inline void uart_port_lock_irqsave(struct uart_port *up, unsigned long *f
   */
  static inline bool uart_port_trylock(struct uart_port *up)
  {
@@ -10184,7 +10182,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  }
  
  /**
-@@ -637,7 +645,11 @@ static inline bool uart_port_trylock(struct uart_port *up)
+@@ -636,7 +644,11 @@ static inline bool uart_port_trylock(struct uart_port *up)
   */
  static inline bool uart_port_trylock_irqsave(struct uart_port *up, unsigned long *flags)
  {
@@ -10197,7 +10195,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  }
  
  /**
-@@ -646,6 +658,7 @@ static inline bool uart_port_trylock_irqsave(struct uart_port *up, unsigned long
+@@ -645,6 +657,7 @@ static inline bool uart_port_trylock_irqsave(struct uart_port *up, unsigned long
   */
  static inline void uart_port_unlock(struct uart_port *up)
  {
@@ -10205,7 +10203,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  	spin_unlock(&up->lock);
  }
  
-@@ -655,6 +668,7 @@ static inline void uart_port_unlock(struct uart_port *up)
+@@ -654,6 +667,7 @@ static inline void uart_port_unlock(struct uart_port *up)
   */
  static inline void uart_port_unlock_irq(struct uart_port *up)
  {
@@ -10213,7 +10211,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  	spin_unlock_irq(&up->lock);
  }
  
-@@ -664,6 +678,19 @@ static inline void uart_port_unlock_irq(struct uart_port *up)
+@@ -663,6 +677,19 @@ static inline void uart_port_unlock_irq(struct uart_port *up)
   * @flags:	The saved interrupt flags for restore
   */
  static inline void uart_port_unlock_irqrestore(struct uart_port *up, unsigned long flags)
@@ -10233,7 +10231,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  {
  	spin_unlock_irqrestore(&up->lock, flags);
  }
-@@ -1078,14 +1105,14 @@ static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
+@@ -1058,14 +1085,14 @@ static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
  	u8 sysrq_ch;
  
  	if (!port->has_sysrq) {
@@ -10250,7 +10248,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  
  	if (sysrq_ch)
  		handle_sysrq(sysrq_ch);
-@@ -1097,14 +1124,14 @@ static inline void uart_unlock_and_check_sysrq_irqrestore(struct uart_port *port
+@@ -1077,14 +1104,14 @@ static inline void uart_unlock_and_check_sysrq_irqrestore(struct uart_port *port
  	u8 sysrq_ch;
  
  	if (!port->has_sysrq) {
@@ -10267,7 +10265,7 @@ index 052df85dfd59..6de3d7aab17d 100644
  
  	if (sysrq_ch)
  		handle_sysrq(sysrq_ch);
-@@ -1120,12 +1147,12 @@ static inline int uart_prepare_sysrq_char(struct uart_port *port, u8 ch)
+@@ -1100,12 +1127,12 @@ static inline int uart_prepare_sysrq_char(struct uart_port *port, u8 ch)
  }
  static inline void uart_unlock_and_check_sysrq(struct uart_port *port)
  {
@@ -10332,7 +10330,7 @@ index 9ea0b28068f4..5ded1450ac1a 100644
  
  #ifndef CONFIG_HAVE_ARCH_WITHIN_STACK_FRAMES
 diff --git a/include/linux/trace_events.h b/include/linux/trace_events.h
-index cb8bd759e800..ce1fefc37cb5 100644
+index 696f8dc4aa53..e44b47305235 100644
 --- a/include/linux/trace_events.h
 +++ b/include/linux/trace_events.h
 @@ -178,8 +178,8 @@ unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status);
@@ -10685,7 +10683,7 @@ index 151bd3de5936..5c21ba41e308 100644
  
  /*
 diff --git a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
-index bf3a28ee7d8f..99129c89120a 100644
+index 21db0df0eb00..4a10e8c16fd2 100644
 --- a/kernel/locking/rtmutex.c
 +++ b/kernel/locking/rtmutex.c
 @@ -218,6 +218,11 @@ static __always_inline bool rt_mutex_cmpxchg_acquire(struct rt_mutex_base *lock,
@@ -10730,8 +10728,8 @@ index bf3a28ee7d8f..99129c89120a 100644
  
  		raw_spin_lock_irq(&lock->wait_lock);
  		set_current_state(state);
-@@ -1643,7 +1662,7 @@ static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
- 
+@@ -1642,7 +1661,7 @@ static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
+ 	WARN(1, "rtmutex deadlock detected\n");
  	while (1) {
  		set_current_state(TASK_INTERRUPTIBLE);
 -		schedule();
@@ -10739,7 +10737,7 @@ index bf3a28ee7d8f..99129c89120a 100644
  	}
  }
  
-@@ -1738,6 +1757,15 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
+@@ -1737,6 +1756,15 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
  	unsigned long flags;
  	int ret;
  
@@ -10755,7 +10753,7 @@ index bf3a28ee7d8f..99129c89120a 100644
  	/*
  	 * Technically we could use raw_spin_[un]lock_irq() here, but this can
  	 * be called in early boot if the cmpxchg() fast path is disabled
-@@ -1749,6 +1777,7 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
+@@ -1748,6 +1776,7 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
  	raw_spin_lock_irqsave(&lock->wait_lock, flags);
  	ret = __rt_mutex_slowlock_locked(lock, ww_ctx, state);
  	raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
@@ -10763,7 +10761,7 @@ index bf3a28ee7d8f..99129c89120a 100644
  
  	return ret;
  }
-@@ -1756,7 +1785,9 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
+@@ -1755,7 +1784,9 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
  static __always_inline int __rt_mutex_lock(struct rt_mutex_base *lock,
  					   unsigned int state)
  {
@@ -10828,7 +10826,7 @@ index 25ec0239477c..34a59569db6b 100644
  }
  
 diff --git a/kernel/locking/rwsem.c b/kernel/locking/rwsem.c
-index 11ed7ce6579e..62eac9fd809a 100644
+index 9eabd585ce7a..2340b6d90ec6 100644
 --- a/kernel/locking/rwsem.c
 +++ b/kernel/locking/rwsem.c
 @@ -1427,8 +1427,14 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
@@ -11128,10 +11126,10 @@ index 7d4979d5c3ce..7db6992c54f3 100644
 +#endif
 diff --git a/kernel/printk/nbcon.c b/kernel/printk/nbcon.c
 new file mode 100644
-index 000000000000..b941039ee7d2
+index 000000000000..b53d93585ee7
 --- /dev/null
 +++ b/kernel/printk/nbcon.c
-@@ -0,0 +1,1665 @@
+@@ -0,0 +1,1664 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +// Copyright (C) 2022 Linutronix GmbH, John Ogness
 +// Copyright (C) 2022 Intel, Thomas Gleixner
@@ -12215,7 +12213,6 @@ index 000000000000..b941039ee7d2
 +		}
 +
 +		console_srcu_read_unlock(cookie);
-+		cond_resched();
 +
 +	} while (backlog);
 +
@@ -14588,10 +14585,10 @@ index 6d10927a07d8..8d9408d653de 100644
  {
  #ifdef CONFIG_KGDB_KDB
 diff --git a/kernel/rcu/rcutorture.c b/kernel/rcu/rcutorture.c
-index 46612fb15fc6..f893f4cfdd38 100644
+index ade42d6a9d9b..eebb9b4548fb 100644
 --- a/kernel/rcu/rcutorture.c
 +++ b/kernel/rcu/rcutorture.c
-@@ -2409,6 +2409,12 @@ static int rcutorture_booster_init(unsigned int cpu)
+@@ -2408,6 +2408,12 @@ static int rcutorture_booster_init(unsigned int cpu)
  		WARN_ON_ONCE(!t);
  		sp.sched_priority = 2;
  		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
@@ -14605,7 +14602,7 @@ index 46612fb15fc6..f893f4cfdd38 100644
  
  	/* Don't allow time recalculation while creating a new task. */
 diff --git a/kernel/rcu/tree_stall.h b/kernel/rcu/tree_stall.h
-index 11a1fac3a589..6f085a159fca 100644
+index e09f4f624261..3114830489ef 100644
 --- a/kernel/rcu/tree_stall.h
 +++ b/kernel/rcu/tree_stall.h
 @@ -8,6 +8,7 @@
@@ -14616,7 +14613,7 @@ index 11a1fac3a589..6f085a159fca 100644
  
  //////////////////////////////////////////////////////////////////////////////
  //
-@@ -604,6 +605,8 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
+@@ -603,6 +604,8 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
  	if (rcu_stall_is_suppressed())
  		return;
  
@@ -14625,7 +14622,7 @@ index 11a1fac3a589..6f085a159fca 100644
  	/*
  	 * OK, time to rat on our buddy...
  	 * See Documentation/RCU/stallwarn.rst for info on how to debug
-@@ -658,6 +661,8 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
+@@ -657,6 +660,8 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
  	panic_on_rcu_stall();
  
  	rcu_force_quiescent_state();  /* Kick them all. */
@@ -14635,10 +14632,10 @@ index 11a1fac3a589..6f085a159fca 100644
  
  static void print_cpu_stall(unsigned long gps)
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 9b406d988654..5e65826dd984 100644
+index 1f91e2c12731..89bf86d3351d 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -897,14 +897,15 @@ static inline void hrtick_rq_init(struct rq *rq)
+@@ -898,14 +898,15 @@ static inline void hrtick_rq_init(struct rq *rq)
  
  #if defined(CONFIG_SMP) && defined(TIF_POLLING_NRFLAG)
  /*
@@ -14657,7 +14654,7 @@ index 9b406d988654..5e65826dd984 100644
  }
  
  /*
-@@ -921,7 +922,7 @@ static bool set_nr_if_polling(struct task_struct *p)
+@@ -922,7 +923,7 @@ static bool set_nr_if_polling(struct task_struct *p)
  	for (;;) {
  		if (!(val & _TIF_POLLING_NRFLAG))
  			return false;
@@ -14666,7 +14663,7 @@ index 9b406d988654..5e65826dd984 100644
  			return true;
  		if (try_cmpxchg(&ti->flags, &val, val | _TIF_NEED_RESCHED))
  			break;
-@@ -930,9 +931,9 @@ static bool set_nr_if_polling(struct task_struct *p)
+@@ -931,9 +932,9 @@ static bool set_nr_if_polling(struct task_struct *p)
  }
  
  #else
@@ -14678,7 +14675,7 @@ index 9b406d988654..5e65826dd984 100644
  	return true;
  }
  
-@@ -1037,28 +1038,47 @@ void wake_up_q(struct wake_q_head *head)
+@@ -1038,28 +1039,47 @@ void wake_up_q(struct wake_q_head *head)
   * might also involve a cross-CPU call to trigger the scheduler on
   * the target CPU.
   */
@@ -14734,7 +14731,7 @@ index 9b406d988654..5e65826dd984 100644
  }
  
  void resched_cpu(int cpu)
-@@ -1131,7 +1151,7 @@ static void wake_up_idle_cpu(int cpu)
+@@ -1132,7 +1152,7 @@ static void wake_up_idle_cpu(int cpu)
  	if (cpu == smp_processor_id())
  		return;
  
@@ -14743,7 +14740,7 @@ index 9b406d988654..5e65826dd984 100644
  		smp_send_reschedule(cpu);
  	else
  		trace_sched_wake_idle_without_ipi(cpu);
-@@ -6722,10 +6742,14 @@ void __noreturn do_task_dead(void)
+@@ -6721,10 +6741,14 @@ void __noreturn do_task_dead(void)
  
  static inline void sched_submit_work(struct task_struct *tsk)
  {
@@ -14760,7 +14757,7 @@ index 9b406d988654..5e65826dd984 100644
  
  	task_flags = tsk->flags;
  	/*
-@@ -6751,6 +6775,8 @@ static inline void sched_submit_work(struct task_struct *tsk)
+@@ -6750,6 +6774,8 @@ static inline void sched_submit_work(struct task_struct *tsk)
  	 * make sure to submit it to avoid deadlocks.
  	 */
  	blk_flush_plug(tsk->plug, true);
@@ -14769,7 +14766,7 @@ index 9b406d988654..5e65826dd984 100644
  }
  
  static void sched_update_worker(struct task_struct *tsk)
-@@ -6763,16 +6789,26 @@ static void sched_update_worker(struct task_struct *tsk)
+@@ -6762,16 +6788,26 @@ static void sched_update_worker(struct task_struct *tsk)
  	}
  }
  
@@ -14801,7 +14798,7 @@ index 9b406d988654..5e65826dd984 100644
  	sched_update_worker(tsk);
  }
  EXPORT_SYMBOL(schedule);
-@@ -6836,11 +6872,7 @@ void __sched schedule_preempt_disabled(void)
+@@ -6835,11 +6871,7 @@ void __sched schedule_preempt_disabled(void)
  #ifdef CONFIG_PREEMPT_RT
  void __sched notrace schedule_rtlock(void)
  {
@@ -14814,7 +14811,7 @@ index 9b406d988654..5e65826dd984 100644
  }
  NOKPROBE_SYMBOL(schedule_rtlock);
  #endif
-@@ -7036,6 +7068,32 @@ static void __setscheduler_prio(struct task_struct *p, int prio)
+@@ -7035,6 +7067,32 @@ static void __setscheduler_prio(struct task_struct *p, int prio)
  
  #ifdef CONFIG_RT_MUTEXES
  
@@ -14847,7 +14844,7 @@ index 9b406d988654..5e65826dd984 100644
  static inline int __rt_effective_prio(struct task_struct *pi_task, int prio)
  {
  	if (pi_task)
-@@ -8886,6 +8944,21 @@ static inline void preempt_dynamic_init(void) { }
+@@ -8885,6 +8943,21 @@ static inline void preempt_dynamic_init(void) { }
  
  #endif /* #ifdef CONFIG_PREEMPT_DYNAMIC */
  
@@ -14907,7 +14904,7 @@ index 4c3d0d9f3db6..63e19b89c8c3 100644
  }
  late_initcall(sched_init_debug);
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index b2e1009e5706..e7e5569fd505 100644
+index 397ef27c9bdb..ed7894d27621 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -1022,8 +1022,10 @@ static void clear_buddies(struct cfs_rq *cfs_rq, struct sched_entity *se);
@@ -14975,7 +14972,7 @@ index b2e1009e5706..e7e5569fd505 100644
  static void update_curr_fair(struct rq *rq)
  {
  	update_curr(cfs_rq_of(&rq->curr->se));
-@@ -5403,7 +5419,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
+@@ -5404,7 +5420,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
  	/*
  	 * Update run-time statistics of the 'current'.
  	 */
@@ -14984,7 +14981,7 @@ index b2e1009e5706..e7e5569fd505 100644
  
  	/*
  	 * Ensure that runnable average is periodically updated.
-@@ -5417,7 +5433,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
+@@ -5418,7 +5434,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
  	 * validating it and just reschedule.
  	 */
  	if (queued) {
@@ -14993,7 +14990,7 @@ index b2e1009e5706..e7e5569fd505 100644
  		return;
  	}
  	/*
-@@ -5563,7 +5579,7 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
+@@ -5564,7 +5580,7 @@ static void __account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
  	 * hierarchy can be throttled
  	 */
  	if (!assign_cfs_rq_runtime(cfs_rq) && likely(cfs_rq->curr))
@@ -15002,7 +14999,7 @@ index b2e1009e5706..e7e5569fd505 100644
  }
  
  static __always_inline
-@@ -5823,7 +5839,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
+@@ -5824,7 +5840,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
  
  	/* Determine whether we need to wake up potentially idle CPU: */
  	if (rq->curr == rq->idle && rq->cfs.nr_running)
@@ -15011,7 +15008,7 @@ index b2e1009e5706..e7e5569fd505 100644
  }
  
  #ifdef CONFIG_SMP
-@@ -6528,7 +6544,7 @@ static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
+@@ -6529,7 +6545,7 @@ static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
  
  		if (delta < 0) {
  			if (task_current(rq, p))
@@ -15020,7 +15017,7 @@ index b2e1009e5706..e7e5569fd505 100644
  			return;
  		}
  		hrtick_start(rq, delta);
-@@ -8206,7 +8222,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+@@ -8187,7 +8203,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  	 * prevents us from potentially nominating it as a false LAST_BUDDY
  	 * below.
  	 */
@@ -15029,7 +15026,7 @@ index b2e1009e5706..e7e5569fd505 100644
  		return;
  
  	/* Idle tasks are by definition preempted by non-idle tasks. */
-@@ -8248,7 +8264,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
+@@ -8229,7 +8245,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
  	return;
  
  preempt:
@@ -15038,7 +15035,7 @@ index b2e1009e5706..e7e5569fd505 100644
  }
  
  #ifdef CONFIG_SMP
-@@ -12394,7 +12410,7 @@ static inline void task_tick_core(struct rq *rq, struct task_struct *curr)
+@@ -12386,7 +12402,7 @@ static inline void task_tick_core(struct rq *rq, struct task_struct *curr)
  	 */
  	if (rq->core->core_forceidle_count && rq->cfs.nr_running == 1 &&
  	    __entity_slice_used(&curr->se, MIN_NR_TASKS_DURING_FORCEIDLE))
@@ -15047,7 +15044,7 @@ index b2e1009e5706..e7e5569fd505 100644
  }
  
  /*
-@@ -12559,7 +12575,7 @@ prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
+@@ -12551,7 +12567,7 @@ prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
  	 */
  	if (task_current(rq, p)) {
  		if (p->prio > oldprio)
@@ -15098,11 +15095,11 @@ index 4ac36eb4cdee..acd1510e8d47 100644
  		rd->rto_cpu = -1;
  
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 8cbbbea7fdbb..00cdf0db8732 100644
+index 35c38daa2d3e..5c976c7dcc91 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2438,6 +2438,7 @@ extern void init_sched_fair_class(void);
- extern void reweight_task(struct task_struct *p, const struct load_weight *lw);
+@@ -2437,6 +2437,7 @@ extern void init_sched_fair_class(void);
+ extern void reweight_task(struct task_struct *p, int prio);
  
  extern void resched_curr(struct rq *rq);
 +extern void resched_curr_lazy(struct rq *rq);
@@ -15110,7 +15107,7 @@ index 8cbbbea7fdbb..00cdf0db8732 100644
  
  extern struct rt_bandwidth def_rt_bandwidth;
 diff --git a/kernel/signal.c b/kernel/signal.c
-index 21903f524ef8..9f240d9cb240 100644
+index 09019017d669..b71026341056 100644
 --- a/kernel/signal.c
 +++ b/kernel/signal.c
 @@ -2329,15 +2329,35 @@ static int ptrace_stop(int exit_code, int why, unsigned long message,
@@ -15155,7 +15152,7 @@ index 21903f524ef8..9f240d9cb240 100644
  	cgroup_leave_frozen(true);
  
 diff --git a/kernel/softirq.c b/kernel/softirq.c
-index bd9716d7bb63..2fde8af88e48 100644
+index 210cf5f8d92c..cae0ae2e2b0b 100644
 --- a/kernel/softirq.c
 +++ b/kernel/softirq.c
 @@ -247,6 +247,19 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
@@ -15178,7 +15175,7 @@ index bd9716d7bb63..2fde8af88e48 100644
  /*
   * Invoked from ksoftirqd_run() outside of the interrupt disabled section
   * to acquire the per CPU local lock for reentrancy protection.
-@@ -623,6 +636,24 @@ static inline void tick_irq_exit(void)
+@@ -619,6 +632,24 @@ static inline void tick_irq_exit(void)
  #endif
  }
  
@@ -15203,7 +15200,7 @@ index bd9716d7bb63..2fde8af88e48 100644
  static inline void __irq_exit_rcu(void)
  {
  #ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
-@@ -635,6 +666,10 @@ static inline void __irq_exit_rcu(void)
+@@ -631,6 +662,10 @@ static inline void __irq_exit_rcu(void)
  	if (!in_interrupt() && local_softirq_pending())
  		invoke_softirq();
  
@@ -15214,7 +15211,7 @@ index bd9716d7bb63..2fde8af88e48 100644
  	tick_irq_exit();
  }
  
-@@ -967,12 +1002,70 @@ static struct smp_hotplug_thread softirq_threads = {
+@@ -963,12 +998,70 @@ static struct smp_hotplug_thread softirq_threads = {
  	.thread_comm		= "ksoftirqd/%u",
  };
  
@@ -15287,10 +15284,10 @@ index bd9716d7bb63..2fde8af88e48 100644
  }
  early_initcall(spawn_ksoftirqd);
 diff --git a/kernel/time/hrtimer.c b/kernel/time/hrtimer.c
-index 57e5cb36f1bc..c4ae45701fab 100644
+index edb0f821dcea..a7290012179a 100644
 --- a/kernel/time/hrtimer.c
 +++ b/kernel/time/hrtimer.c
-@@ -1812,7 +1812,7 @@ void hrtimer_interrupt(struct clock_event_device *dev)
+@@ -1809,7 +1809,7 @@ void hrtimer_interrupt(struct clock_event_device *dev)
  	if (!ktime_before(now, cpu_base->softirq_expires_next)) {
  		cpu_base->softirq_expires_next = KTIME_MAX;
  		cpu_base->softirq_activated = 1;
@@ -15299,7 +15296,7 @@ index 57e5cb36f1bc..c4ae45701fab 100644
  	}
  
  	__hrtimer_run_queues(cpu_base, now, flags, HRTIMER_ACTIVE_HARD);
-@@ -1925,7 +1925,7 @@ void hrtimer_run_queues(void)
+@@ -1922,7 +1922,7 @@ void hrtimer_run_queues(void)
  	if (!ktime_before(now, cpu_base->softirq_expires_next)) {
  		cpu_base->softirq_expires_next = KTIME_MAX;
  		cpu_base->softirq_activated = 1;
@@ -15353,7 +15350,7 @@ index 63a8ce7177dd..b3fbe97d1e34 100644
  
  /*
 diff --git a/kernel/trace/trace.c b/kernel/trace/trace.c
-index be878005e344..fe755b1c2fe6 100644
+index fd398af792b4..03653fcb3ee3 100644
 --- a/kernel/trace/trace.c
 +++ b/kernel/trace/trace.c
 @@ -2708,6 +2708,8 @@ unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status)
@@ -15403,13 +15400,13 @@ index 3b7d3e9eb6ea..5a4fefbc0856 100644
  		break;
 diff --git a/localversion-rt b/localversion-rt
 new file mode 100644
-index 000000000000..ac4d836a809d
+index 000000000000..a68b4337d4ce
 --- /dev/null
 +++ b/localversion-rt
 @@ -0,0 +1 @@
-+-rt44
++-rt31
 diff --git a/net/core/dev.c b/net/core/dev.c
-index 5a5bd339f11e..8f193d7b8b41 100644
+index 1f6c8945f2ec..1e8928cd3c75 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
 @@ -4705,15 +4705,6 @@ static void rps_trigger_softirq(void *data)
@@ -15461,7 +15458,7 @@ index 5a5bd339f11e..8f193d7b8b41 100644
  static int napi_threaded_poll(void *data)
  {
  	struct napi_struct *napi = data;
-@@ -11619,7 +11636,11 @@ static int __init net_dev_init(void)
+@@ -11618,7 +11635,11 @@ static int __init net_dev_init(void)
  		INIT_CSD(&sd->csd, rps_trigger_softirq, sd);
  		sd->cpu = i;
  #endif
