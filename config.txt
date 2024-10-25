@@ -40,6 +40,10 @@ dtoverlay=rpi-backlight
 #       this won't work.
 #dtoverlay=w1-gpio-pullup,gpiopin=4
 
+# Enable CanBus
+# See: https://www.waveshare.com/wiki/RS485_CAN_HAT
+dtoverlay=mcp2515-can0,oscillator=12000000,interrupt=25,spimaxfrequency=2000000
+
 # The ramoops overlay works with the pstore driver to preserve crash
 # information across reboots in DRAM
 dtoverlay=ramoops
